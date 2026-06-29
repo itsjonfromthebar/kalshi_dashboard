@@ -40,6 +40,67 @@ def snapshot_at_or_before_map(db: Session, cutoff: datetime) -> dict[str, PriceS
     return {row.ticker: row for row in rows}
 
 
+def snapshot_near_target_map(
+    db: Session,
+    latest: dict[str, PriceSnapshot],
+    target_time: datetime,
+    tolerance: timedelta,
+) -> dict[str, PriceSnapshot]:
+    """Pick the closest real prior snapshot for each market near the target time.
+
+    Fresh cloud deployments often collect snapshots a little before or after
+    the exact 1-minute/1-hour mark. Choosing the closest earlier observation
+    within tolerance keeps Movers populated without comparing against fake 0%
+    baselines or very old stale rows.
+    """
+    if not latest:
+        return {}
+
+    earliest_allowed = target_time - tolerance
+    latest_allowed = target_time + tolerance
+
+    before_subq = (
+        select(PriceSnapshot.ticker, func.max(PriceSnapshot.ts).label('candidate_ts'))
+        .where(PriceSnapshot.ts >= earliest_allowed)
+        .where(PriceSnapshot.ts <= target_time)
+        .group_by(PriceSnapshot.ticker)
+        .subquery()
+    )
+    after_subq = (
+        select(PriceSnapshot.ticker, func.min(PriceSnapshot.ts).label('candidate_ts'))
+        .where(PriceSnapshot.ts > target_time)
+        .where(PriceSnapshot.ts <= latest_allowed)
+        .group_by(PriceSnapshot.ticker)
+        .subquery()
+    )
+    before_rows = db.execute(
+        select(PriceSnapshot).join(
+            before_subq,
+            (PriceSnapshot.ticker == before_subq.c.ticker)
+            & (PriceSnapshot.ts == before_subq.c.candidate_ts),
+        )
+    ).scalars().all()
+    after_rows = db.execute(
+        select(PriceSnapshot).join(
+            after_subq,
+            (PriceSnapshot.ticker == after_subq.c.ticker)
+            & (PriceSnapshot.ts == after_subq.c.candidate_ts),
+        )
+    ).scalars().all()
+
+    priors: dict[str, PriceSnapshot] = {}
+    for row in [*before_rows, *after_rows]:
+        current = latest.get(row.ticker)
+        if not current or row.ts >= current.ts:
+            continue
+        if abs(row.ts - target_time) > tolerance:
+            continue
+        existing = priors.get(row.ticker)
+        if existing is None or abs(row.ts - target_time) < abs(existing.ts - target_time):
+            priors[row.ticker] = row
+    return priors
+
+
 def build_movers(
     db: Session,
     hours: int = 24,
@@ -53,14 +114,14 @@ def build_movers(
     # "1 minute" comparison independent of when the user opens the tab.
     reference_time = max(snapshot.ts for snapshot in latest.values())
     interval = timedelta(minutes=minutes) if minutes is not None else timedelta(hours=hours)
-    cutoff = reference_time - interval
-    priors = snapshot_at_or_before_map(db, cutoff)
+    target_time = reference_time - interval
     rows: list[dict] = []
 
     # Allow for collection-time drift without labeling an old observation as a
     # fresh 1-minute, 1-hour, or 24-hour move.
     interval_minutes = minutes if minutes is not None else hours * 60
     tolerance = timedelta(seconds=max(60, interval_minutes * 6))
+    priors = snapshot_near_target_map(db, latest, target_time, tolerance)
 
     for ticker, cur in latest.items():
         prior = priors.get(ticker)
@@ -76,7 +137,8 @@ def build_movers(
             continue
         if current_probability < 0.0 or current_probability > 1.0:
             continue
-        if cur.ts - prior.ts > interval + tolerance:
+        observed_gap = cur.ts - prior.ts
+        if observed_gap <= timedelta(0) or observed_gap > interval + tolerance:
             continue
 
         change = current_probability - prior_probability

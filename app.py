@@ -227,6 +227,7 @@ with st.sidebar:
         try:
             with st.spinner('Loading public open markets into local SQLite…'):
                 count = ingest_open_markets(use_public_api=True)
+            get_movers.clear()
             st.success(f'Live sync complete: saved {count} regular public open markets to SQLite. Search now uses this local copy.')
             st.rerun()
         except Exception as e:
@@ -237,7 +238,7 @@ with st.sidebar:
         last_live_update = db.execute(select(PriceSnapshot.ts).order_by(desc(PriceSnapshot.ts)).limit(1)).scalar_one_or_none()
     if last_live_update:
         st.caption(f'Latest local quote: {eastern_snapshot_time(last_live_update)}')
-    st.caption('For automatic 60-second price updates, double-click scripts\\start_live_feed.bat after the first public sync.')
+    st.caption('On Render/cloud, click “Fetch public live markets” again to collect another price snapshot for Movers.')
 
     if settings.has_api_credentials and st.button('Refresh open markets now', use_container_width=True):
         try:
@@ -356,7 +357,11 @@ with tabs[1]:
     movers = get_movers(minutes=horizon, limit=200)
 
     if not movers:
-        st.info('Need at least two price updates across the selected interval. Keep the live updater running to collect them.')
+        st.info(
+            'Need at least two real price updates for the selected horizon. '
+            'On Render, click “Fetch public live markets” again after the horizon passes '
+            '(about 1 minute, 1 hour, or 24 hours) so Movers has two cloud snapshots to compare.'
+        )
     else:
         mdf = pd.DataFrame(movers)
         mdf['opportunity_score'] = mdf.apply(lambda r: opportunity_score(r.to_dict()), axis=1)
@@ -374,6 +379,10 @@ with tabs[1]:
                 '**previous/latest snapshot** are stored in ET. **Opportunity score** uses normalized weights: '
                 '45% move size, 25% volume, 15% liquidity, and 15% uncertainty (markets nearer 50% rank higher). '
                 'It is a research ranking, not a trading signal.'
+            )
+            st.caption(
+                'Cloud note: Movers uses snapshots collected after deployment. '
+                'A fresh Render app starts with little history, so the list grows after repeated public syncs.'
             )
 
         f1, f2, f3, f4, f5 = st.columns([2.35, 2.15, 1, 1, 1.15])
