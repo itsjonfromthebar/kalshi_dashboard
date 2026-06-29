@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: kalshi-dashboard
+    runtime: docker
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHONPATH
+        value: /app/app
+      - key: KALSHI_ENV
+        value: prod
+      - key: DATABASE_URL
+        value: sqlite:///./kalshi_dashboard.db
+      - key: APP_AUTH_REQUIRED
+        value: true
+      - key: APP_USERNAME
+        value: admin
+      - key: APP_PASSWORD
+        sync: false
+      - key: SNAPSHOT_LIMIT
+        value: 2500
+      - key: PUBLIC_MARKET_LIMIT
+        value: 10000
+      - key: SNAPSHOT_INTERVAL_MINUTES
+        value: 5

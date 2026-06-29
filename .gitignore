@@ -1,0 +1,11 @@
+.env
+*.key
+*.db
+*.db-shm
+*.db-wal
+.venv/
+__pycache__/
+.pytest_cache/
+.streamlit/secrets.toml
+.DS_Store
+briefings/
