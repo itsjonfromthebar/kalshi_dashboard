@@ -101,8 +101,17 @@ def _quantity(m: dict, field: str) -> int | None:
 
 
 def _probability(m: dict) -> float | None:
-    for field in ('last_price', 'yes_ask', 'yes_bid'):
-        value = _quote_cents(m, field)
+    # For live market scanning, bid/ask midpoint is usually a better current
+    # probability than last trade. Many active markets have no recent trade yet
+    # and report last_price=0 even though the yes bid/ask are meaningful.
+    yes_bid = _quote_cents(m, 'yes_bid')
+    yes_ask = _quote_cents(m, 'yes_ask')
+    if yes_bid is not None and yes_ask is not None:
+        return ((yes_bid + yes_ask) / 2) / 100.0
+    last_price = _quote_cents(m, 'last_price')
+    if last_price is not None and last_price > 0:
+        return last_price / 100.0
+    for value in (yes_ask, yes_bid, last_price):
         if value is not None:
             return value / 100.0
     return None

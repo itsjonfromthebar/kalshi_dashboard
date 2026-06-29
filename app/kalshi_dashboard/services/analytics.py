@@ -101,6 +101,36 @@ def snapshot_near_target_map(
     return priors
 
 
+def immediate_prior_snapshot_map(db: Session) -> dict[str, PriceSnapshot]:
+    """Fallback for manual cloud syncs: latest row versus previous real row.
+
+    Render users may click the public fetch button at uneven intervals. When
+    there is no snapshot close to the selected horizon yet, this still lets
+    Movers populate after two fetches while preserving the invalid-baseline
+    checks in build_movers.
+    """
+    latest_subq = (
+        select(PriceSnapshot.ticker, func.max(PriceSnapshot.ts).label('max_ts'))
+        .group_by(PriceSnapshot.ticker)
+        .subquery()
+    )
+    prior_subq = (
+        select(PriceSnapshot.ticker, func.max(PriceSnapshot.ts).label('prior_ts'))
+        .join(latest_subq, PriceSnapshot.ticker == latest_subq.c.ticker)
+        .where(PriceSnapshot.ts < latest_subq.c.max_ts)
+        .group_by(PriceSnapshot.ticker)
+        .subquery()
+    )
+    rows = db.execute(
+        select(PriceSnapshot).join(
+            prior_subq,
+            (PriceSnapshot.ticker == prior_subq.c.ticker)
+            & (PriceSnapshot.ts == prior_subq.c.prior_ts),
+        )
+    ).scalars().all()
+    return {row.ticker: row for row in rows}
+
+
 def build_movers(
     db: Session,
     hours: int = 24,
@@ -122,6 +152,10 @@ def build_movers(
     interval_minutes = minutes if minutes is not None else hours * 60
     tolerance = timedelta(seconds=max(60, interval_minutes * 6))
     priors = snapshot_near_target_map(db, latest, target_time, tolerance)
+    used_immediate_fallback = False
+    if not priors:
+        priors = immediate_prior_snapshot_map(db)
+        used_immediate_fallback = True
 
     for ticker, cur in latest.items():
         prior = priors.get(ticker)
@@ -138,7 +172,12 @@ def build_movers(
         if current_probability < 0.0 or current_probability > 1.0:
             continue
         observed_gap = cur.ts - prior.ts
-        if observed_gap <= timedelta(0) or observed_gap > interval + tolerance:
+        # For exact horizon matches, reject stale comparisons. If we had to use
+        # the immediate-prior fallback, allow the comparison so a fresh cloud app
+        # begins populating Movers after two manual public syncs.
+        if observed_gap <= timedelta(0):
+            continue
+        if not used_immediate_fallback and observed_gap > interval + tolerance:
             continue
 
         change = current_probability - prior_probability
