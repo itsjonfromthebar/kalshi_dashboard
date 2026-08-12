@@ -9,6 +9,7 @@ A local-first Streamlit dashboard for personal Kalshi market tracking, snapshots
 - RSA-PSS request signing for authenticated endpoints
 - SQLite-first database
 - Market ingestion and historical snapshots
+- Rolling 24-hour snapshot retention so SQLite does not grow forever
 - Markets explorer with search/category/volume filters
 - Movers and opportunity scanner
 - Watchlist with charts

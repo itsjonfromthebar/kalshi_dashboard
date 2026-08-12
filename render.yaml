@@ -19,6 +19,8 @@ services:
         sync: false
       - key: SNAPSHOT_LIMIT
         value: 2500
+      - key: SNAPSHOT_RETENTION_HOURS
+        value: 24
       - key: PUBLIC_MARKET_LIMIT
         value: 10000
       - key: SNAPSHOT_INTERVAL_MINUTES

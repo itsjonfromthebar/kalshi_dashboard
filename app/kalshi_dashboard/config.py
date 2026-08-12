@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default='sqlite:///./kalshi_dashboard.db', alias='DATABASE_URL')
     snapshot_limit: int = Field(default=200, alias='SNAPSHOT_LIMIT')
     snapshot_interval_minutes: int = Field(default=5, alias='SNAPSHOT_INTERVAL_MINUTES')
+    snapshot_retention_hours: int = Field(default=24, alias='SNAPSHOT_RETENTION_HOURS')
     public_market_limit: int = Field(default=10_000, alias='PUBLIC_MARKET_LIMIT')
     app_auth_required: bool = Field(default=False, alias='APP_AUTH_REQUIRED')
     app_username: str = Field(default='admin', alias='APP_USERNAME')

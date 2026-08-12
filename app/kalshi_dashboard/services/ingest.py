@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from kalshi_dashboard.api.client import KalshiClient
 from kalshi_dashboard.config import get_settings
+from kalshi_dashboard.db.maintenance import prune_old_price_snapshots
 from kalshi_dashboard.db.models import Market, PriceSnapshot
 from kalshi_dashboard.db.session import SessionLocal
 from kalshi_dashboard.services.demo_data import seed_demo_data
@@ -213,5 +214,9 @@ def ingest_open_markets(
                 volume=_quantity(m, 'volume'),
                 liquidity=_quantity(m, 'liquidity'),
             ))
+        # Keep only recent snapshots so local/cloud SQLite stays small.
+        # This preserves the 1m/1h/24h Movers windows without storing months
+        # of historical price data.
+        prune_old_price_snapshots(db, now=captured_at)
         db.commit()
     return len(markets)
